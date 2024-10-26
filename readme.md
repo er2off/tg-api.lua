@@ -18,7 +18,7 @@ $ lit install er2off/tg-api
 
 This API is Object-Oriented and it's very simple to use it with your bot:
 ```lua
-require 'telegram'
+require 'tg-api'
 local client = new 'TGClient' {
 	token = 'private',
 }
