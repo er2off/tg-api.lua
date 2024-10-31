@@ -1,6 +1,6 @@
 return {
 	name = 'er2off/tg-api',
-	version = '0.1.0',
+	version = '0.1.1',
 	description = 'Telegram API for Luvit',
 	tags = { 'lua', 'luvit', 'telegram', 'bot' },
 	license = 'Zlib',
@@ -17,7 +17,7 @@ return {
 		'luvit/secure-socket@v1.2.4',
 	},
 	files = {
-		'**.lua',
+		'*.lua',
 		'!test*'
 	}
 }

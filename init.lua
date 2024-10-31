@@ -47,6 +47,7 @@ class 'TGClient' : inherits 'EventsThis' {
 
 		this.request = this.tools.request
 		this.parseArgs = this.tools.parseArgs
+		this.escMarkdown = this.tools.escMarkdown
 
 		if opts.noRun
 		then this.noRun = true
@@ -72,6 +73,8 @@ class 'TGClient' : inherits 'EventsThis' {
 			repeat local res, ok = this:getMe()
 				if ok and res
 				then this.info = res.result
+				elseif not ok
+				then error(res.description)
 				end
 			until this.info
 			this.info.name = this.info.first_name
@@ -91,8 +94,12 @@ class 'TGClient' : inherits 'EventsThis' {
 		this:emit 'ready'
 		coroutine.wrap(function()
 			local offset = 0
-			while this.runs
-			do offset = this:recvUpdate(offset)
+			while this.runs do
+				local ok, res = xpcall(this.recvUpdate, debug.traceback, this, offset)
+				if ok
+				then offset = res
+				else print(res)
+				end
 			end
 		end)()
 	end,
@@ -123,10 +130,10 @@ class 'TGClient' : inherits 'EventsThis' {
 			return offset + 1
 		end
 		for _, upd in pairs(updates.result) do
-			offset = math.max(upd.update_id, offset)
+			offset = upd.update_id + 1
 			this:receiveUpdate(upd)
 		end
-		return offset + 1
+		return offset
 	end,
 
 	--- Receives update.
@@ -198,10 +205,22 @@ class 'TGClient' : inherits 'EventsThis' {
 
 	--- Returns information about chat.
 	-- @tparam TGClient this
-	-- @tparam number chatID Identifier of chat, can be 64-bit since 2021.
+	-- @tparam number|string chatID Identifier of chat, can be @username or 64-bit number since 2021.
 	-- @treturn table Information about chat.
 	getChat = function(this, chatID)
 		return this:request('getChat', {chat_id = this.toChat(chatID)})
+	end,
+
+	--- Returns information about chat member.
+	-- @tparam TGClient this
+	-- @tparam number|string chatID Unique chat, channel or user ID or @username.
+	-- @tparam number userID Identifier of user which should be in this chat.
+	-- @treturn ChatMember Information about chat member on success.
+	getChatMember = function(this, chatID, userID)
+		return this:request('getChatMember', {
+			chat_id = this.toChat(chatID),
+			user_id = userID,
+		})
 	end,
 
 	--- Returns available updates.
@@ -551,4 +570,8 @@ class 'TGClient' : inherits 'EventsThis' {
 	-- @usage
 	-- local args = api.parseArgs 'this is "one big arg" unlike \"these \" ones'
 
+	--- Escapes markdown sequences.
+	-- @function escMarkdown
+	-- @tparam string text Text with markdown characters.
+	-- @treturn string Text with escaped markdown characters.
 }

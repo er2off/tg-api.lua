@@ -146,4 +146,11 @@ class 'TGTools' {
 		end
 		return args
 	end,
+
+	--- Escapes markdown sequences.
+	-- @tparam string text Text with markdown characters.
+	-- @treturn string Text with escaped markdown characters.
+	escMarkdown = function(text)
+		return tostring(text):gsub('[_%*%[%]%(%)~`>#%+%-=|%{%}%.!]', '\\%0')
+	end,
 }
