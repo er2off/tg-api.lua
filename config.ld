@@ -6,7 +6,9 @@ backtick_references = false
 file = {
 	'init.lua',
 	'inline.lua',
+	'markup.lua',
 	'tools.lua',
 }
 readme = 'readme.md'
 style = '!new'
+format = 'discount'

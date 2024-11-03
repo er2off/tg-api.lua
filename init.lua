@@ -9,6 +9,7 @@ require 'class'
 require 'events'
 require './tools'
 require './inline'
+require './markup'
 
 class 'TGClient' : inherits 'EventsThis' {
 	--- Client initialization options.
@@ -17,6 +18,10 @@ class 'TGClient' : inherits 'EventsThis' {
 	-- @tfield[opt] string url Custom Telegram API endpoint.
 	-- @tfield[opt=false] boolean noRun Disables run() after successful login(),
 	-- you need to do this manually.
+	-- @tfield[opt=false] boolean noGlobal Disables requirement for commands to
+	-- add @usernameBot to start, e.g. it can act with /cmd in groups.
+	-- @tfield[opt=120] number timeout Command receive timeout, prevents bot from
+	-- answering old commands if it was stopped by mistake.
 	-- @tfield[opt] table[string] allowedUpdates Array of allowed updates.
 	--
 	-- @tparam[opt=1] number limit Limit of updates count for long polling.
@@ -52,6 +57,10 @@ class 'TGClient' : inherits 'EventsThis' {
 		if opts.noRun
 		then this.noRun = true
 		end
+		if opts.noGlobal
+		then this.noGlobal = true
+		end
+		this.timeout = tonumber(opts.timeout or 120)
 		if opts.allowedUpdates then
 			assert(type(opts.allowedTypes) == 'table', 'Invalid allowedUpdates')
 			-- check values too?
@@ -150,9 +159,12 @@ class 'TGClient' : inherits 'EventsThis' {
 			local msg = upd.message
 			local cmd, to = this.tools.fetchCmd(msg.text or '')
 			if cmd then
-				-- Need /cmd@bot in groups
+				-- Command is not for us
 				if (to and to ~= this.info.username)
-				or (not to and (msg.chat.type == 'group' or msg.chat.type == 'supergroup'))
+				-- Timeout
+				or (this.timeout > 0 and os.time() - msg.date > this.timeout)
+				-- /cmd@bot in groups
+				or (this.noGlobal and (not to and (msg.chat.type == 'group' or msg.chat.type == 'supergroup')))
 				then return end
 				-- Strip command
 				local toLen = to and (#to + 1) or 0
@@ -176,17 +188,51 @@ class 'TGClient' : inherits 'EventsThis' {
 		elseif upd.poll_answer
 		then this:emit('pollAnswer', upd.poll_answer)
 
-		elseif upd.callback_query
-		then this:emit('callbackQuery', upd.callback_query)
+		elseif upd.business_connection
+		then this:emit('businessConniction', upd.business_connection)
+		-- FIXME: Handle it too?
+		elseif upd.business_message
+		then this:emit('messageBusiness', upd.business_message)
+		elseif upd.business_edited_message
+		then this:emit('messageEditBusiness', upd.business_edited_message)
+		elseif upd.deleted_business_messages
+		then this:emit('messagesDeletedBusiness', upd.deleted_business_messages)
+
+		elseif upd.message_reaction
+		then this:emit('messageReaction', upd.message_reaction)
+		elseif upd.message_reaction_count
+		then this:emit('messageReactionCount', upd.message_reaction_count)
+
 		elseif upd.inline_query
 		then this:emit('inlineQuery', upd.inline_query)
 		elseif upd.chosen_inline_result
-		then this:emit('inlineResult', upd.chosen_inline_result)
+		then this:emit('inlineChosenResult', upd.chosen_inline_result)
+		elseif upd.callback_query
+		then this:emit('callbackQuery', upd.callback_query)
 
-		elseif upd.pre_checkout_query
-		then this:emit('preCheckoutQuery', upd.pre_checkout_query)
 		elseif upd.shipping_query
 		then this:emit('shippingQuery', upd.shipping_query)
+		elseif upd.pre_checkout_query
+		then this:emit('preCheckoutQuery', upd.pre_checkout_query)
+		elseif upd.purchased_paid_media
+		then this:emit('paidMediaPurchase', upd.purchased_paid_media)
+
+		elseif upd.poll
+		then this:emit('poll', upd.poll)
+		elseif upd.poll_answer
+		then this:emit('pollAnswer', upd.poll_answer)
+
+		elseif upd.my_chat_member
+		then this:emit('chatMemberUpdateMe', upd.my_chat_member)
+		elseif upd.chat_member
+		then this:emit('chatMemberUpdate', upd.chat_member)
+
+		elseif upd.chat_join_request
+		then this:emit('joinRequest', upd.chat_join_request)
+		elseif upd.chat_boost
+		then this:emit('boost', upd.chat_boost)
+		elseif upd.removed_chat_boost
+		then this:emit('boostRemoved', upd.removed_chat_boost)
 
 		end
 	end,
@@ -255,6 +301,7 @@ class 'TGClient' : inherits 'EventsThis' {
 	-- @tparam LinkPreviewOptions opts.linkPreview Link preview generation options.
 	-- @tparam boolean opts.isSilent Disables message notification.
 	-- @tparam boolean opts.isProtected Protects message from forwarding and saving.
+	-- @tparam boolean opts.isPaidBroadcast Ignores broadcasting limits but paid (0.1 stars per message).
 	-- @tparam string opts.effectID Message effect (?), private chats only.
 	-- @tparam ReplyParameters opts.replyParams Description of the message to reply to.
 	-- @tparam InlineKeyboardMarkup|ReplyKeyboardMarkup|ReplyKeyboardRemove|ForceReply
@@ -275,6 +322,7 @@ class 'TGClient' : inherits 'EventsThis' {
 			link_preview_options = opts.linkPreview,
 			disable_notification = opts.isSilent,
 			protect_content = opts.isProtected,
+			allow_paid_broadcast = opts.isPaidBroadcast,
 			message_effect_id = opts.effectID,
 			reply_parameters = opts.replyParams,
 			reply_markup = opts.markup,
@@ -326,6 +374,7 @@ class 'TGClient' : inherits 'EventsThis' {
 	-- @tparam boolean opts.isSilent Disables message notification.
 	-- @tparam boolean opts.isProtected Protects message from forwarding and saving.
 	-- @tparam string opts.effectID Message effect (?), private chats only.
+	-- @tparam boolean opts.isPaidBroadcast Ignores broadcasting limits but paid (0.1 stars per message).
 	-- @tparam ReplyParameters opts.replyParams Description of the message to reply to.
 	-- @tparam InlineKeyboardMarkup|ReplyKeyboardMarkup|ReplyKeyboardRemove|ForceReply
 	-- opts.markup Additional interface options.
@@ -339,6 +388,7 @@ class 'TGClient' : inherits 'EventsThis' {
 			emoji = opts.emoji,
 			disable_notification = opts.isSilent,
 			protect_content = opts.isProtected,
+			allow_paid_broadcast = opts.isPaidBroadcast,
 			message_effect_id = opts.effectID,
 			reply_parameters = opts.replyParams,
 			reply_markup = opts.markup,
@@ -359,6 +409,7 @@ class 'TGClient' : inherits 'EventsThis' {
 	-- @tparam boolean opts.isSpoiler Adds spoiler animation for clients.
 	-- @tparam boolean opts.isSilent Disables message notification.
 	-- @tparam boolean opts.isProtected Protects message from forwarding and saving.
+	-- @tparam boolean opts.isPaidBroadcast Ignores broadcasting limits but paid (0.1 stars per message).
 	-- @tparam string opts.effectID Message effect (?), private chats only.
 	-- @tparam ReplyParameters opts.replyParams Description of the message to reply to.
 	-- @tparam InlineKeyboardMarkup|ReplyKeyboardMarkup|ReplyKeyboardRemove|ForceReply
@@ -377,6 +428,7 @@ class 'TGClient' : inherits 'EventsThis' {
 			has_spoiler = opts.isSpoiler,
 			disable_notification = opts.isSilent,
 			protect_content = opts.isProtected,
+			allow_paid_broadcast = opts.isPaidBroadcast,
 			message_effect_id = opts.effectID,
 			reply_parameters = opts.replyParams,
 			reply_markup = opts.markup,
@@ -396,6 +448,7 @@ class 'TGClient' : inherits 'EventsThis' {
 	-- @tparam table[MessageEntity] opts.entities Caption entities, may be used instead of parseMode.
 	-- @tparam boolean opts.isSilent Disables message notification.
 	-- @tparam boolean opts.isProtected Protects message from forwarding and saving.
+	-- @tparam boolean opts.isPaidBroadcast Ignores broadcasting limits but paid (0.1 stars per message).
 	-- @tparam string opts.effectID Message effect (?), private chats only.
 	-- @tparam ReplyParameters opts.replyParams Description of the message to reply to.
 	-- @tparam InlineKeyboardMarkup|ReplyKeyboardMarkup|ReplyKeyboardRemove|ForceReply
@@ -413,6 +466,7 @@ class 'TGClient' : inherits 'EventsThis' {
 			-- disable_content_type_detection
 			disable_notification = opts.isSilent,
 			protect_content = opts.isProtected,
+			allow_paid_broadcast = opts.isPaidBroadcast,
 			message_effect_id = opts.effectID,
 			reply_parameters = opts.replyParams,
 			reply_markup = opts.markup,
@@ -440,6 +494,7 @@ class 'TGClient' : inherits 'EventsThis' {
 	-- @tparam number opts.closesAt Unix timestamp when poll closes. Can't be used with opts.opened.
 	-- @tparam boolean opts.isSilent Disables message notification.
 	-- @tparam boolean opts.isProtected Protects message from forwarding and saving.
+	-- @tparam boolean opts.isPaidBroadcast Ignores broadcasting limits but paid (0.1 stars per message).
 	-- @tparam string opts.effectID Message effect (?), private chats only.
 	-- @tparam ReplyParameters opts.replyParams Description of the message to reply to.
 	-- @tparam InlineKeyboardMarkup|ReplyKeyboardMarkup|ReplyKeyboardRemove|ForceReply
@@ -467,10 +522,148 @@ class 'TGClient' : inherits 'EventsThis' {
 			-- is_closed -- useless
 			disable_notification = opts.isSilent,
 			protect_content = opts.isProtected,
+			allow_paid_broadcast = opts.isPaidBroadcast,
 			message_effect_id = opts.effectID,
 			reply_parameters = opts.replyParams,
 			reply_markup = opts.markup,
 		})
+	end,
+
+	--- Updating messages
+	-- @section Update
+
+	--- Changes message text.
+	-- @tparam TGClient this
+	-- @tparam string text New message text.
+	-- @tparam[opt] table opts Additional options. (optional)
+	-- @tparam number opts.businessID Business connection ID. (explain?)
+	-- @tparam Message opts.message Old message, required if not inline message is to be edited.
+	-- @tparam string opts.inlineID Inline message identifier, use this instead of opts.message only for inline messages.
+	-- @tparam string opts.parseMode Message parsing mode. (see Telegram docs for more information)
+	-- @tparam table[MessageEntity] opts.entities Message entities, may be used instead of parseMode.
+	-- @tparam LinkPreviewOptions opts.linkPreview Link preview generation options.
+	-- @tparam InlineKeyboardMarkup opts.markup Inline keyboard. (NOTE, it have less types than with sendMessage)
+	-- @treturn Message|boolean Boolean for inline messages, Message otherwise but only on success.
+	editText = function(this, text, opts)
+		opts = opts or {}
+		return this:request('editMessageText', {
+			business_connection_id = opts.businessID,
+			chat_id = opts.message and this.toChat(opts.message),
+			message_id = opts.message and opts.message.message_id,
+			inline_message_id = opts.inlineID,
+			text = tostring(text),
+			parse_mode = opts.parseMode,
+			entities = opts.entities,
+			link_preview_options = opts.linkPreview,
+			reply_markup = opts.markup,
+		})
+	end,
+
+	--- Changes message caption.
+	-- @tparam TGClient this
+	-- @tparam[opt] string caption New message caption, can be nil to remove caption.
+	-- @tparam[opt] table opts Additional options. (optional)
+	-- @tparam number opts.businessID Business connection ID. (explain?)
+	-- @tparam Message opts.message Old message, required if not inline message is to be edited.
+	-- @tparam string opts.inlineID Inline message identifier, use this instead of opts.message only for inline messages.
+	-- @tparam string opts.parseMode Caption parsing mode. (see Telegram docs for more information)
+	-- @tparam table[MessageEntity] opts.entities Caption entities, may be used instead of parseMode.
+	-- @tparam boolean opts.isCaptionAbove Shows caption above image (default is below).
+	-- @tparam InlineKeyboardMarkup opts.markup Inline keyboard. (NOTE, it have less types than with sendPhoto)
+	-- @treturn Message|boolean Boolean for inline messages, Message otherwise but only on success.
+	editCaption = function(this, caption, opts)
+		opts = opts or {}
+		return this:request('editMessageCaption', {
+			business_connection_id = opts.businessID,
+			chat_id = opts.message and this.toChat(opts.message),
+			message_id = opts.message and opts.message.message_id,
+			inline_message_id = opts.inlineID,
+			caption = caption,
+			parse_mode = opts.parseMode,
+			caption_entities = opts.entities,
+			show_caption_above_media = opts.isCaptionAbove,
+			reply_markup = opts.markup,
+		})
+	end,
+
+	--- Changes message inline keyboard markup.
+	-- @tparam TGClient this
+	-- @tparam[opt] table opts Additional options. (optional)
+	-- @tparam number opts.businessID Business connection ID. (explain?)
+	-- @tparam Message opts.message Old message, required if not inline message is to be edited.
+	-- @tparam string opts.inlineID Inline message identifier, use this instead of opts.message only for inline messages.
+	-- @tparam InlineKeyboardMarkup opts.markup Inline keyboard. (REQUIRED)
+	-- @treturn Message|boolean Boolean for inline messages, Message otherwise but only on success.
+	-- @raise If opts.markup is not defined.
+	editMarkup = function(this, opts)
+		if not opts or not opts.markup
+		then error 'Markup is not defined'
+		end
+		return this:request('editMessageReplyMarkup', {
+			business_connection_id = opts.businessID,
+			chat_id = opts.message and this.toChat(opts.message),
+			message_id = opts.message and opts.message.message_id,
+			inline_message_id = opts.inlineID,
+			reply_markup = opts.markup,
+		})
+	end,
+
+	--- Stops polls started by bot.
+	-- @tparam TGClient this
+	-- @tparam Message message Message with started poll.
+	-- @tparam[opt] table opts Additional options. (optional)
+	-- @tparam number opts.businessID Business connection ID. (explain?)
+	-- @tparam InlineKeyboardMarkup opts.markup Inline keyboard.
+	-- @treturn ?Poll Poll on success.
+	stopPoll = function(this, message, opts)
+		opts = opts or {}
+		return this:request('stopPoll', {
+			business_connection_id = opts.businessID,
+			chat_id = this.toChat(message),
+			message_id = message.message_id,
+			reply_markup = opts.markup,
+		})
+	end,
+
+	--- Deletes message.
+	-- @tparam TGClient this
+	-- @tparam Message message Message to be deleted.
+	-- @treturn boolean True on success.
+	delete = function(this, message)
+		return this:request('deleteMessage', {chat_id = this.toChat(message), message_id = message.message_id})
+	end,
+
+	--- Deletes multiple messages.
+	--
+	-- This implementation automatically sends multiple requests if messages are > 100
+	--
+	-- @tparam TGClient this
+	-- @tparam table[Message] messages Messages to be deleted, should be in same chat.
+	-- @treturn boolean True on success.
+	-- @raise If messages is not array of Message, or if message is not from this chat.
+	deleteMulti = function(this, messages)
+		if type(messages) ~= 'table'
+		or type(messages[1]) ~= 'table'
+		then error 'deleteMulti should have array of messages'
+		end
+		local chat = this.toChat(messages[1])
+		local ids = {}
+		for i = 1, #messages do
+			local v = messages[i]
+			if this.toChat(v) ~= chat
+			then error 'Message is not from this chat, preventing deletion'
+			end
+			table.insert(ids, v.message_id)
+			if i % 100 == 0 then
+				-- deletion itself
+				local res, ok = this:request('deleteMessages', {chat_id = chat, message_ids = ids})
+				if not ok
+				then return res, false
+				end
+				ids = {}
+			end
+		end
+		return true
 	end,
 
 	--- API methods
